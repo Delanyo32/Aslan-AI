@@ -95,3 +95,17 @@ Pipeline Architecture
 - Chunking: using similar and related data to group the data. recognize preliminary patterns
 - Compare to random stock picking and trades
 - Using the traveling sales man algorithms to inprove predictions and get closer to the solution
+
+
+## Useful comands
+``
+docker pull delanyo32/task-scheduler:latest
+docker pull delanyo32/aslan-core:latest
+docker pull redis
+docker pull datadog/agent
+
+docker run -dp 6376:6376 redis
+docker run -dp 9000:9000 delanyo32/aslan-core
+docker run -dp 8080:8080 delanyo32/task-scheduler
+docker run -d --cgroupns host --pid host --name dd-agent -v /var/run/docker.sock:/var/run/docker.sock:ro -v /proc/:/host/proc/:ro -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro -e DD_API_KEY=<DATADOG_API_KEY> gcr.io/datadoghq/agent:7
+``
