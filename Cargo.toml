@@ -1,0 +1,9 @@
+[workspace]
+
+members = [
+    "alpaca-api",
+    "aslan-core",
+    "aslan-data",
+    "aslan-wavereduce",
+    "aslan-bootstrap"
+]

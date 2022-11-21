@@ -1,0 +1,15 @@
+[submodule "alpaca-api"]
+	path = alpaca-api
+	url = https://github.com/Delanyo32/alpaca-api.git
+[submodule "aslan-bootstrap"]
+	path = aslan-bootstrap
+	url = https://github.com/Delanyo32/aslan-bootstrap.git
+[submodule "aslan-core"]
+	path = aslan-core
+	url = https://github.com/Delanyo32/aslan-core.git
+[submodule "aslan-data"]
+	path = aslan-data
+	url = https://github.com/Delanyo32/aslan-data.git
+[submodule "aslan-wavereduce"]
+	path = aslan-wavereduce
+	url = https://github.com/Delanyo32/aslan-wavereduce.git
