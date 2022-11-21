@@ -9,31 +9,6 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     steps:
-      - 
-        name: alpaca-api
-        uses: actions/checkout@v3
-        with:
-          repository: Delanyo32/alpaca-api
-          token: ${{ secrets.RUST_PROJECT_KEYS }}
-          path: alpaca-api
-      - 
-        name: aslan-bootstrap
-        uses: actions/checkout@v3
-        with:
-          repository: Delanyo32/aslan-bootstrap
-          path: master
-      - 
-        name: aslan-data
-        uses: actions/checkout@v3
-        with:
-          repository: Delanyo32/aslan-data
-          path: master
-      - 
-        name: aslan-wavereduce
-        uses: actions/checkout@v3
-        with:
-          repository: Delanyo32/aslan-wavereduce
-          path: master
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v2
