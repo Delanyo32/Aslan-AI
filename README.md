@@ -109,9 +109,20 @@ docker network create --driver bridge aslan-core-net
 docker run -it -p 9000:9000 -d --net "aslan-core-net" delanyo32/aslan-core bash 
 
 docker container exec -it 2e60b79af999 bash 
+curl -w '\n' http://chart-redis-c816035e:6379/ping
+curl -w '\n' http://chart-taskschedulerdeploymentservice-c80e97cf:8080/health
+curl -w '\n' http://chart-aslancoreservice-c8f2509a:9000
+
+curl -Is http://chart-redis-c816035e:6379 | head -1
+
 
 docker run --name redis -p 6379:6379 -d --net "aslan-core-net" redis 
 docker run -dp 9000:9000 delanyo32/aslan-core --network aslan-core-net
 docker run -dp 8080:8080 delanyo32/task-scheduler
 docker run -d --cgroupns host --pid host --name dd-agent -v /var/run/docker.sock:/var/run/docker.sock:ro -v /proc/:/host/proc/:ro -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro -e DD_API_KEY=<DATADOG_API_KEY> gcr.io/datadoghq/agent:7
+
+
+
+kubectl create deployment --image redis redis 
+kubectl expose deployment my-nginx --port=80 --type=LoadBalancer
 ``
