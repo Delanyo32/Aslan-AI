@@ -121,8 +121,10 @@ docker run -dp 9000:9000 delanyo32/aslan-core --network aslan-core-net
 docker run -dp 8080:8080 delanyo32/task-scheduler
 docker run -d --cgroupns host --pid host --name dd-agent -v /var/run/docker.sock:/var/run/docker.sock:ro -v /proc/:/host/proc/:ro -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro -e DD_API_KEY=<DATADOG_API_KEY> gcr.io/datadoghq/agent:7
 
-
+helm install aslan-logging -f values.yaml  --set datadog.apiKey=f220fb795c794aac53c8d9c885c42526 datadog/datadog --set targetSystem=linux
 
 kubectl create deployment --image redis redis 
 kubectl expose deployment my-nginx --port=80 --type=LoadBalancer
+
+npm run compile && cdk8s synth 
 ``
