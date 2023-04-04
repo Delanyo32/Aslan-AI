@@ -6,10 +6,10 @@ LABEL "com.datadoghq.ad.instances"='[{"host": "%%host%%","port":"9000"}]'
 
 ENV REDIS_URL=redis://redis:6379/0
 
+RUN git submodule update --init --recursive
+
 WORKDIR /usr/src/myapp
 COPY . .
-
-RUN git submodule update --init --recursive
 
 RUN cargo build --release
 
