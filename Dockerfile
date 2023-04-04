@@ -9,6 +9,8 @@ ENV REDIS_URL=redis://redis:6379/0
 WORKDIR /usr/src/myapp
 COPY . .
 
+RUN git submodule update --init --recursive
+
 RUN cargo build --release
 
 CMD ["./target/release/aslan-core"]
