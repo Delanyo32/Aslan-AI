@@ -1,0 +1,30 @@
+[package]
+name = "aslan-core"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+alpaca-api = {path = "../alpaca-api"}
+aslan-data = {path="../aslan-data"}
+aslan-wavereduce = {path="../aslan-wavereduce"}
+aslan-bootstrap = {path="../aslan-bootstrap"}
+tokio = { version = "1", features = ["full"] }
+rand = "0.8.5"
+serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+apalis = { version = "0.3", features = ["postgres", "broker"] }
+actix-web = "4"
+env_logger = "0.8"
+log = "^0.4"
+futures = "0.3"
+elasticsearch = "8.5.0-alpha.1"
+sentry = "0.29.1"
+sentry-actix = "0.29.1"
+chrono = { version = "0.4" }
+
+[dependencies.mongodb]
+version = "2.3.1"
+default-features = false
+features = ["async-std-runtime"]
