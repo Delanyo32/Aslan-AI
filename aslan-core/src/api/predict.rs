@@ -25,6 +25,10 @@ pub struct PredictParameters{
 
 #[post("/predict")]
 pub async fn generate(path: web::Json<PredictParameters>) -> Json<DataResponse> {
+    //request data
+    //normalize (find the differences)
+    //for each data point, generate space of possible next data points by getting node from database
+    //use the genertion space to generate a prediction
     
     info!("Generating prediction for symbol: {}", path.symbol);
     let mongodb = MongoClient::new().await;

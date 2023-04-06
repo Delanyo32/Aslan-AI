@@ -10,6 +10,7 @@ use crate::api::predict::{generate_prediction};
 pub struct TrainJob {
     pub symbol: String,
     pub path: String,
+    pub market: String,
     pub status: Status,
 }
 
@@ -47,10 +48,10 @@ impl Job for TrainJob {
     const NAME: &'static str = "apalis::TrainJob";
 }
 
-pub async fn build_model(symbol: String, path: String) {
+pub async fn build_model(symbol: String, path: String, market: String) {
     info!("Building data model for {}", symbol);
     let mongo_client = MongoClient::new().await;
-    let data = mongo_client.get_symbol_data(symbol.clone(), path.clone()).await;
+    let data = mongo_client.get_symbol_data(symbol.clone(), path.clone(), market.clone()).await;
 
     //truncate data from full data for testing
     info!("Truncating data for testing. Data Size {}", data.len());
@@ -77,12 +78,16 @@ pub async fn build_model(symbol: String, path: String) {
     mongo_client.save_loss_breakdown(symbol.clone(), loss_breakdown,path.clone()).await;
     mongo_client.save_loss_breakdown(symbol.clone(), wave_loss_breakdown,path.clone()).await;
 
-    mongo_client.export_data(symbol.clone(), nodes,path).await;
+    mongo_client.export_data(symbol.clone(), nodes,path.clone(),market.clone()).await;
     info!("Building data model complete");
+
+    //adding model to the model list
+    info!("Adding model to model list");
+    mongo_client.add_model_entry(symbol.clone(), path.clone(),market.clone()).await;
 }
 
 pub async fn train_model(job: TrainJob, _ctx: JobContext) -> Result<JobResult, JobError> {
-    build_model(job.symbol, job.path).await;
+    build_model(job.symbol, job.path, job.market).await;
     Ok(JobResult::Success)
 }
 

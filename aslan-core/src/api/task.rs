@@ -6,7 +6,7 @@ use apalis::{postgres::PostgresStorage, prelude::Storage};
 use serde::{Deserialize, Serialize};
 use log::{info, warn,error};
 
-use crate::types::app_state::{TrainJob,Status};
+use crate::{types::app_state::{TrainJob,Status}, db::mongodb::MongoClient};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct DataRequest {
@@ -30,15 +30,29 @@ pub struct DataResponse {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct DataFileParam {
     symbol: String,
+    market: String,
     path: String
 }
 
 #[post("/data")]
 pub async fn init(body: web::Json<DataFileParam>, storage: web::Data<PostgresStorage<TrainJob>>) -> Json<DataResponse> {
 
+    let mongo_client = MongoClient::new().await;
+    let entry = mongo_client.get_model_metadata(body.symbol.clone(),body.path.clone()).await;
+    match entry {
+        Some(_) => {
+            let response = DataResponse {
+                message: "Model already exists".to_string(),
+            };
+            return Json(response)
+        },
+        None => info!("Model does not exist, creating new model"),
+    }
+
     let new_job = TrainJob {
         symbol: body.symbol.clone(),
         path: body.path.clone(),
+        market: body.market.clone(),
         status: Status::Pending,
     };
     let storage = &*storage.into_inner();

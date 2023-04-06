@@ -3,8 +3,8 @@ use chrono::{DateTime, Utc};
 use futures::stream::TryStreamExt;
 use log::{error, info, warn};
 use mongodb::{
-    bson::{doc, Document},
-    options::{ClientOptions, FindOptions, ResolverConfig},
+    bson::{doc, Document, self,oid::ObjectId},
+    options::{ClientOptions, FindOptions, ResolverConfig, FindOneOptions},
     Client,
 };
 use serde::{Deserialize, Serialize};
@@ -24,6 +24,13 @@ pub struct SymbolData {
     pub data: Vec<f64>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ModelEntries{
+    pub _id: String,
+    pub symbol: String,
+    pub path: String,
+}
+
 impl MongoClient {
     pub async fn new() -> Self {
         let client_uri =
@@ -32,31 +39,32 @@ impl MongoClient {
         MongoClient { client: client }
     }
 
-    pub async fn get_symbol_data(&self, symbol: String, path: String) -> Vec<f64> {
+    pub async fn get_symbol_data(&self, symbol: String, path: String, market: String) -> Vec<f64> {
         let database = self.client.database("aslan-data");
-        let collection_name = format!("{}_data", symbol);
+        let collection_name = format!("{}_{}_DATA", symbol, market);
         let collection = database.collection::<SymbolData>(collection_name.as_str());
-        info!("Querying for symbol: {} and path: {}", symbol, path);
+        info!("Querying for symbol: {} ", collection_name);
 
         // Query the books in the collection with a filter and an option.
-        let mut data = Vec::new();
-        let filter = doc! {"label": &path };
-        let find_options = FindOptions::builder().build();
-        let mut cursor = collection.find(filter, find_options).await.unwrap();
-        info!("Displaying results");
-        // Iterate over the results of the cursor.
-        while let Some(entry) = cursor.try_next().await.unwrap() {
-            data = entry.data;
+        let label  = path.clone().to_lowercase();
+        let filter = doc! { "label": label };
+        let document = collection.find_one(filter, None).await.unwrap();
+        
+        match document {
+            Some(document) => {
+                info!("Found symbol data for {} and path {}", symbol, path);
+                document.data
+            }
+            None => {
+                error!("No symbol data found for {} and path {}", symbol, path);
+                Vec::new()
+            }
         }
-        if data.len() == 0 {
-            error!("No data found for symbol: {} and path: {}", symbol, path);
-        }
-        data
     }
 
-    pub async fn export_data(&self, symbol: String, data: Vec<DataNode>, label: String) {
-        let database = self.client.database("aslan-data");
-        let collection_name = format!("{}_model", symbol);
+    pub async fn export_data(&self, symbol: String, data: Vec<DataNode>, label: String, market: String) {
+        let database = self.client.database("aslan-model");
+        let collection_name = format!("{}_{}_{}_MODEL", symbol,label,market);
         let collection = database.collection(&collection_name);
         let now: DateTime<Utc> = Utc::now();
         let mut nodes = Vec::new();
@@ -70,6 +78,7 @@ impl MongoClient {
                  };
                 edges.push(edge);
             };
+            
             let node = doc! { 
                 "symbol": &symbol,
                 "label": &label,
@@ -85,8 +94,9 @@ impl MongoClient {
     }
 
     pub async fn save_loss_breakdown (&self, symbol: String, loss_breakdown: LossBreakdown, label: String){
-        let database = self.client.database("aslan-data");
-        let collection = database.collection("loss-breakdown");
+        let database = self.client.database("aslan-meta");
+        let collection_name = format!("LOSS_BREAKDOWN");
+        let collection = database.collection(collection_name.as_str());
         let now: DateTime<Utc> = Utc::now();
         let mut loss_items = Vec::new();
         for loss_item in loss_breakdown.loss_items {
@@ -96,7 +106,9 @@ impl MongoClient {
              };
             loss_items.push(loss_item);
         };
+        let id = format!("{}_{}_{}", symbol, label, loss_breakdown.stage);
         let loss_breakdown = doc! { 
+            "_id": id,
             "symbol": &symbol,
             "label": &label,
             "stage": &loss_breakdown.stage,
@@ -111,6 +123,34 @@ impl MongoClient {
 
     pub async fn get_node_data(&self, symbol: &str) -> Vec<DataNode> {
         return Vec::new();
+    }
+
+    //function to check if given a symbol and a path, if the data exists and return it if it does
+    pub async fn get_model_metadata(&self, symbol: String, path: String) -> Option<ModelEntries> {
+        let database = self.client.database("aslan-meta");
+        let collection_name = format!("{}_MODELS", symbol);
+        let collection = database.collection::<ModelEntries>(collection_name.as_str());
+        info!("Querying for symbol: {} and path: {}", symbol, path);
+
+        // Query the books in the collection with a filter and an option.
+        let filter = doc! {"symbol": &symbol, "label": &path };
+        let find_options = FindOneOptions::builder().build();
+        let entry = collection.find_one(filter, find_options).await.unwrap();
+        entry
+    }
+
+    // function to add model entry to the database
+    pub async fn add_model_entry(&self, symbol: String, path: String, market: String) {
+        let database = self.client.database("aslan-meta");
+        let collection_name = format!("{}_MODELS", market);
+        let collection = database.collection::<ModelEntries>(collection_name.as_str());
+        let id = format!("{}_{}_MODEL", symbol, path);
+        let entry = ModelEntries {
+            _id: id,
+            symbol: symbol,
+            path: path,
+        };
+        collection.insert_one(entry, None).await.unwrap();
     }
 }
 
