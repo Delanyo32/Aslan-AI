@@ -1,9 +1,9 @@
 use aslan_data::DataNode;
 use chrono::{DateTime, Utc};
-use futures::stream::TryStreamExt;
+use futures::{stream::TryStreamExt, StreamExt};
 use log::{error, info, warn};
 use mongodb::{
-    bson::{doc, Document, self,oid::ObjectId},
+    bson::{doc, Document, self,oid::ObjectId, Bson},
     options::{ClientOptions, FindOptions, ResolverConfig, FindOneOptions},
     Client,
 };
@@ -142,7 +142,7 @@ impl MongoClient {
     // function to add model entry to the database
     pub async fn add_model_entry(&self, symbol: String, path: String, market: String) {
         let database = self.client.database("aslan-meta");
-        let collection_name = format!("{}_MODELS", market);
+        let collection_name = format!("{}_MODELS", symbol);
         let collection = database.collection::<ModelEntries>(collection_name.as_str());
         let id = format!("{}_{}_MODEL", symbol, path);
         let entry = ModelEntries {
@@ -151,6 +151,51 @@ impl MongoClient {
             path: path,
         };
         collection.insert_one(entry, None).await.unwrap();
+    }
+
+    // function to find if a model entry exists
+    pub async fn find_model_entry(&self, symbol: String, path: String) -> bool {
+        let database = self.client.database("aslan-meta");
+        let collection_name = format!("{}_MODELS", symbol);
+        let collection = database.collection::<ModelEntries>(collection_name.as_str());
+        let filter = doc! {"symbol": &symbol, "path": &path };
+        let find_options = FindOneOptions::builder().build();
+        let entry = collection.find_one(filter, find_options).await.unwrap();
+        match entry {
+            Some(_) => {
+                info!("Found model entry for {} and path {}", symbol, path);
+                true
+            },
+            None => {
+                info!("No model entry found for {} and path {}", symbol, path);
+                false
+            },
+        }
+    }
+
+    pub async fn find_node(&self, symbol: String, label: String, market:String ,parameter: f64) -> Vec<DataNode> {
+        let database = self.client.database("aslan-model");
+        let collection_name = format!("{}_{}_{}_MODEL", symbol,label,market);
+        let collection = database.collection::<DataNode>(&collection_name);
+
+        let add_feild_stage = doc!{"$addFields": { "distance": {"$abs":{"$subtract": ["$average" ,parameter ]}  } }};
+        let sort_stage = doc!{"$sort": { "distance": 1 }};
+        let limit_stage = doc!{"$limit": 1};
+        let pipeline = vec![add_feild_stage, sort_stage, limit_stage];
+        let mut cursor = collection.aggregate(pipeline, None).await.unwrap();
+        
+        let mut nodes = Vec::new();
+        while let Some(data) = cursor.try_next().await.unwrap() {
+            info!("Diff: {:?}", data.get_f64("distance").unwrap());
+            info!("Average {:?}", data.get_f64("average").unwrap());
+            info!("Parameter {:?}", parameter);
+            let data_node = bson::from_document::<DataNode>(data).unwrap();
+            info!("-----------------");
+            nodes.push(data_node);
+        }
+
+        nodes
+        
     }
 }
 

@@ -15,6 +15,15 @@ pub struct TrainJob {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct JobList {
+    pub done: Vec<String>,
+    pub pending: Vec<String>,
+    pub running: Vec<String>,
+    pub failed: Vec<String>,
+    pub retry: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub enum Status {
     Pending,
     Running,

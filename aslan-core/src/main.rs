@@ -1,17 +1,20 @@
-use actix_web::{Responder, HttpResponse};
-use apalis::prelude::{Monitor, WorkerBuilder, WorkerFactoryFn};
+use actix_web::web::{route, Json};
+use actix_web::{Responder, HttpResponse, post};
+use apalis::prelude::{Monitor, WorkerBuilder, WorkerFactoryFn, JobStreamExt, JobState, Storage};
 use apalis::layers::{TraceLayer};
 use apalis::postgres::PostgresStorage;
 use actix_web::{web, App, HttpServer, middleware::Logger};
+use api::job::{list_jobs, get_workers, kill_job, get_job};
 use futures::future;
 mod api;
 use api::task::{init};
 use api::predict::{generate};
 
 mod types;
-use types::app_state::{TrainJob,train_model};
+use types::app_state::{TrainJob,train_model, JobList};
 
 mod db;
+
 
 #[tokio::main]
 async fn main()-> std::io::Result<()>{
@@ -43,6 +46,10 @@ async fn main()-> std::io::Result<()>{
             .service(init)
             .service(generate)
             .route("/", web::get().to(health))
+            .route("/listJobs" ,web::get().to(list_jobs))
+            .route("/listWorkers" ,web::get().to(get_workers))
+            .route("/killJob/{job_id}" ,web::get().to(kill_job))
+            .route("/getJob/{job_id}" ,web::get().to(get_job))
     })
     .bind(("0.0.0.0", port))?
     .run();
@@ -63,3 +70,6 @@ async fn main()-> std::io::Result<()>{
 async fn health() -> impl Responder {
     HttpResponse::Ok().body("Aslan is searching For Truth!")
 }
+
+
+
