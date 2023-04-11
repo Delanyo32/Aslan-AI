@@ -117,7 +117,7 @@ impl WaveReduce {
 
 impl WaveReduceSolution {
 
-    pub fn flatten_results(data:Vec<&WaveReduceResult>)->Vec<Vec<f64>>{
+    pub fn flatten_results(data:&Vec<WaveReduceResult>)->Vec<Vec<f64>>{
         let mut flattened_results = Vec::new();
         for result in data{
             let mut flattened_result = result.result.iter().map(|x| x.state).collect();

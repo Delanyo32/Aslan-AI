@@ -89,6 +89,7 @@ impl Bootstrap {
             let average = (average * 100.0).round() / 100.0;
             average_data.push(average);
             current_data = current_data + average;
+            current_data = (current_data * 100.0).round() / 100.0;
             generated_data.push(current_data);
         }
         let result = BootstrapResult::new(generated_data,average_data);

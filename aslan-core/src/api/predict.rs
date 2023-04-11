@@ -40,30 +40,45 @@ pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> 
         return Json(response)
     }
 
+    // load model into memory
+    let model = mongodb.load_model(data.symbol.clone(),data.path.clone(),data.market.clone()).await;
+    info!("Model Loaded for symbol: {}", data.symbol);
+
+    let mut result_space =  Vec::new();
+
     // calculate the differences between entries
     let predection_parameters =  convert_seed(data.seed.clone());
 
-    let mut nodes: Vec<DataNode> = Vec::new();
     // find all the nodes contain the differences
-    for parameter in predection_parameters.iter(){
-        let node = mongodb.find_node(data.symbol.clone(),data.path.clone(),data.market.clone(),*parameter).await;
-        nodes = [node,nodes].concat();
+    for (index, parameter) in predection_parameters.iter().enumerate(){
+        
+        let partition_size = predection_parameters.len() + data.size - (index+1);
+        // make this a parameter in the future
+        let wave_result_size = 100;
+
+        let wavereduce = aslan_wavereduce::WaveReduce::new(*parameter, partition_size,wave_result_size);
+        let wavereduce_results = wavereduce.generate_results(&model);
+
+        //print a random result from the wavereduce results
+        let flat_results = aslan_wavereduce::WaveReduceSolution::flatten_results(&wavereduce_results.results);
+        info!("---------------------------------");
+        info!("Parameter: {}", parameter);
+        info!("Partition Size: {}", partition_size);
+        info!("Wave Result Size: {}", wavereduce_results.results.len());
+        for result in flat_results{
+            let (_, right) = result.split_at(result.len() - 7);
+            result_space.push(right.to_vec());
+        }
+        info!("---------------------------------");
     }
 
-    //1. create wavereduce arrays based on the first node and fetching likely nodes from mongodb
-    //2. overlay the wavereduce arrays to create a single array 
-    //3. use boostrap to generate the prediction
-    
-    // info!("Generating prediction for symbol: {}", data.symbol);
-    
-    // let open_nodes = mongodb.get_node_data(&path.symbol).await;
-
-    // info!("Model Loaded for symbol: {}", path.symbol);
-    // let prediction = generate_prediction(&open_nodes, path.seed, path.size);
+    let boostrap_iterations = 100;
+    let open_bootstrap = aslan_bootstrap::Bootstrap::new(boostrap_iterations,result_space);
+    let bootstrap_results = open_bootstrap.run(data.seed[data.seed.len()-1], data.size);
 
     let response = DataResponse {
         message: "Predicted Data".to_string(),
-        data: None,
+        data: Some(bootstrap_results),
     };
     Json(response)
 }
@@ -76,10 +91,9 @@ pub fn generate_prediction(nodes: &Vec<DataNode>, partition_seed:f64,partition_s
     let wavereduce_results = wavereduce.generate_results(nodes);
 
     info!("Running Boostrap");
-    let random_results = wavereduce_results.get_random_results(5);
 
     //flatten the top results
-    let flat_results = aslan_wavereduce::WaveReduceSolution::flatten_results(random_results);
+    let flat_results = aslan_wavereduce::WaveReduceSolution::flatten_results(&wavereduce_results.results);
 
     //generate bootstrap results
     let boostrap_iterations = 100;

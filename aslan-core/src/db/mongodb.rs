@@ -186,16 +186,26 @@ impl MongoClient {
         
         let mut nodes = Vec::new();
         while let Some(data) = cursor.try_next().await.unwrap() {
-            info!("Diff: {:?}", data.get_f64("distance").unwrap());
-            info!("Average {:?}", data.get_f64("average").unwrap());
-            info!("Parameter {:?}", parameter);
             let data_node = bson::from_document::<DataNode>(data).unwrap();
-            info!("-----------------");
             nodes.push(data_node);
         }
 
         nodes
         
+    }
+
+    pub async fn load_model(&self, symbol: String, label: String, market:String) -> Vec<DataNode> {
+        let database = self.client.database("aslan-model");
+        let collection_name = format!("{}_{}_{}_MODEL", symbol,label,market);
+        let collection = database.collection::<DataNode>(&collection_name);
+
+        let mut cursor = collection.find(None, None).await.unwrap();
+
+        let mut nodes = Vec::new();
+        while let Some(data) = cursor.try_next().await.unwrap() {
+            nodes.push(data);
+        }
+        return nodes;
     }
 }
 
