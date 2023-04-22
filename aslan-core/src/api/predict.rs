@@ -47,6 +47,13 @@ pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> 
     let mut result_space =  Vec::new();
 
     // calculate the differences between entries
+    if data.seed.len() < 2{
+        let response = DataResponse {
+            message: "Seed must be at least 2 entries".to_string(),
+            data: None,
+        };
+        return Json(response)
+    }
     let predection_parameters =  convert_seed(data.seed.clone());
 
     // find all the nodes contain the differences
@@ -65,8 +72,9 @@ pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> 
         info!("Parameter: {}", parameter);
         info!("Partition Size: {}", partition_size);
         info!("Wave Result Size: {}", wavereduce_results.results.len());
+        info!("Result Size: {}", flat_results.len());
         for result in flat_results{
-            let (_, right) = result.split_at(result.len() - 7);
+            let (_, right) = result.split_at(result.len() - data.size);
             result_space.push(right.to_vec());
         }
         info!("---------------------------------");
