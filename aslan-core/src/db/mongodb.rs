@@ -31,6 +31,15 @@ pub struct ModelEntries{
     pub path: String,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Symbol{
+    pub symbol: String,
+    pub name: String,
+    pub class: String,
+    pub exchange: String,
+    pub shortable: bool,
+}
+
 impl MongoClient {
     pub async fn new() -> Self {
         let client_uri =
@@ -206,6 +215,20 @@ impl MongoClient {
             nodes.push(data);
         }
         return nodes;
+    }
+
+    pub async fn get_symbols(&self) -> Vec<String> {
+        let database = self.client.database("aslan-meta");
+        let collection_name = format!("symbols_NASDAQ");
+        let collection = database.collection::<Symbol>(&collection_name);
+
+        let mut cursor = collection.find(None, None).await.unwrap();
+
+        let mut symbols = Vec::new();
+        while let Some(data) = cursor.try_next().await.unwrap() {
+            symbols.push(data.symbol);
+        }
+        return symbols;
     }
 }
 
