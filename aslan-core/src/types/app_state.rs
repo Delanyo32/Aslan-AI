@@ -3,8 +3,10 @@ use aslan_data::DataNode;
 use serde::{Serialize, Deserialize};
 use log::{info};
 use rand::prelude::*;
+use crate::api::task;
 use crate::db::mongodb::MongoClient;
 use crate::api::predict::{generate_prediction};
+use logging_timer::{time, stime};
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TrainJob {
@@ -57,6 +59,61 @@ impl Job for TrainJob {
     const NAME: &'static str = "apalis::TrainJob";
 }
 
+pub async fn build_model_v2(symbol: String, path: String, market: String){
+    // get symbols from database
+    let mongo_client = MongoClient::new().await;
+    let symbols = mongo_client.get_symbols().await;
+    let mut tasks = Vec::new();
+    let mut full_normalized_data = Vec::new();
+    let mut full_data = Vec::new();
+    for symbol in symbols{
+        let symbol = symbol.clone();
+        let path = path.clone();
+        let market = market.clone();
+        let mongo_client = mongo_client.clone();
+        let task = tokio::spawn(async move {
+            //get data from database
+            info!("Getting data from database");
+            let data = mongo_client.get_symbol_data(symbol, path, market).await;
+
+            //checking for size
+            if data.len() < 2 {
+                info!("Data size is too small. Skipping");
+                return (Vec::new(), Vec::new());
+            }
+
+            info!("Normalizing data");
+            let normalized_data = aslan_data::AslanDataChunks::normalize_data(&data);
+            (normalized_data, data)
+        });
+        tasks.push(task);
+    }
+
+    for task in tasks{
+        let  (mut data,mut normalized_data) = task.await.unwrap();
+        
+        let mut_norm = normalized_data.as_mut();
+        let mut_data = data.as_mut();
+
+        full_data.append(mut_data);
+        full_normalized_data.append(mut_norm);
+    }
+
+    info!("Initializing data");
+    let (_, mut nodes) = initialize_data_v2(&full_normalized_data);
+
+    info!("Training model with wavereduce");
+    wavereduce_training(full_data, nodes.as_mut(), 100, 7);
+
+    mongo_client.export_data("OMEGA".to_string(), nodes,path.clone(),market.clone()).await;
+    info!("Building data model complete");
+
+    //adding model to the model list
+    info!("Adding model to model list");
+    mongo_client.add_model_entry("OMEGA".to_string(), path.clone(),market.clone()).await;
+
+}
+
 pub async fn build_model(symbol: String, path: String, market: String) {
     info!("Building data model for {}", symbol);
     let mongo_client = MongoClient::new().await;
@@ -77,7 +134,7 @@ pub async fn build_model(symbol: String, path: String, market: String) {
     let loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Initialisation Stage".to_string());
 
     info!("Training model with wavereduce");
-    wavereduce_training(data, nodes.as_mut(), 100, 7);
+    wavereduce_training(data, nodes.as_mut(), 100000, 7);
 
     info!("Evaluating loss function post WaveReduce");
     let wave_loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Wavereduce Stage".to_string());
@@ -96,7 +153,7 @@ pub async fn build_model(symbol: String, path: String, market: String) {
 }
 
 pub async fn train_model(job: TrainJob, _ctx: JobContext) -> Result<JobResult, JobError> {
-    build_model(job.symbol, job.path, job.market).await;
+    build_model_v2(job.symbol, job.path, job.market).await;
     Ok(JobResult::Success)
 }
 
@@ -110,6 +167,22 @@ fn initialize_data(data: &Vec<f64>) -> (Vec<f64>, Vec<DataNode>) {
     aslan_data::DataNode::set_weights(nodes_v2.as_mut());
     (averaged_data, nodes_v2)
 }
+
+#[time]
+fn initialize_data_v2(normalized_data: &Vec<f64>) -> (Vec<f64>, Vec<DataNode>) {
+    info!("Generating nodes");
+    let mut nodes_v2 = aslan_data::DataNode::generate_nodes(&normalized_data, 0.07);
+    info!("Initializing node edges");
+    aslan_data::DataNode::initialize_node_edges(nodes_v2.as_mut());
+    let averaged_data = aslan_data::DataNode::parse_data(&nodes_v2, &normalized_data);
+    info!("Setting distance scores");
+    aslan_data::DataNode::set_distance_scores(nodes_v2.as_mut(), &averaged_data);
+    info!("Setting weights");
+    aslan_data::DataNode::set_weights(nodes_v2.as_mut());
+    info!("Initialization complete");
+    (averaged_data, nodes_v2)
+}
+
 
 fn wavereduce_training (data: Vec<f64>,nodes: &mut Vec<DataNode>, iterations: usize, chunk_size: usize){
     let chunks: Vec<&[f64]> = data.chunks(chunk_size).collect();

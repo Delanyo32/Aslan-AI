@@ -31,21 +31,37 @@ pub struct PredictParameters{
 #[post("/predict")]
 pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> {
     let mongodb = MongoClient::new().await;
+    
 
     let symbols = mongodb.get_symbols().await;
     let mut predictions = Vec::new();
-
+    let mut tasks = Vec::new();
  
 
     for symbol in symbols {
-        let prediction = predict(symbol.clone(), data.path.clone(), data.market.clone(), data.size, data.seed.clone()).await;
+        let symbol = symbol.clone();
+        let path = data.path.clone();
+        let market = data.market.clone();
+        let size = data.size;
+        let seed = data.seed.clone();
+        let mongodb = mongodb.clone();
+        let task = tokio::spawn( async move  {
+        
+            let prediction = predict(symbol, path, market, size, seed, &mongodb).await;
+            return prediction;
+        });
+        tasks.push(task);
+    }
+
+    for task in tasks {
+        let prediction = task.await.unwrap();
         match prediction {
             Ok(prediction) => {
-                info!("Prediction Generated for {}", symbol);
+                info!("Prediction Generated");
                 predictions.push(prediction.generated_data);
             },
             Err(e) => {
-                info!("Prediction Failed for {}: {}", symbol, e);
+                info!("Prediction Failed: {}", e);
                 continue;
             }
         }
@@ -75,9 +91,8 @@ pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> 
 }
 
 // gets a model based on a symbol and generates a prediction
-async fn predict(symbol: String, path: String, market: String, size: usize,seed: Vec<f64>) -> Result<BootstrapResult,String> {
+async fn predict(symbol: String, path: String, market: String, size: usize,seed: Vec<f64>, mongodb: &MongoClient) -> Result<BootstrapResult,String> {
 
-    let mongodb = MongoClient::new().await;
     // check if model exists in models metadata database
     if !mongodb.find_model_entry(symbol.clone(),path.clone()).await{
         return Err("Model does not exist".to_string());

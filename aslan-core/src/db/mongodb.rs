@@ -12,6 +12,14 @@ use std::{env, sync::Arc};
 
 use crate::types::app_state::LossBreakdown;
 
+// implement copy trait for Mongo Client
+impl Clone for MongoClient {
+    fn clone(&self) -> Self {
+        MongoClient {
+            client: self.client.clone(),
+        }
+    }
+}
 #[derive(Debug)]
 pub struct MongoClient {
     pub client: Client,
