@@ -153,7 +153,7 @@ pub async fn build_model(symbol: String, path: String, market: String) {
 }
 
 pub async fn train_model(job: TrainJob, _ctx: JobContext) -> Result<JobResult, JobError> {
-    build_model_v2(job.symbol, job.path, job.market).await;
+    build_model(job.symbol, job.path, job.market).await;
     Ok(JobResult::Success)
 }
 
