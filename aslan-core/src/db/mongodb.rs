@@ -26,6 +26,15 @@ pub struct MongoClient {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct PredictEntry {
+    pub _id: String,
+    pub symbol: String,
+    pub market: String,
+    pub path: String,
+    pub prediction: Vec<f64>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct SymbolData {
     pub symbol: String,
     pub label: String,
@@ -48,6 +57,8 @@ pub struct Symbol{
     pub shortable: bool,
 }
 
+
+
 impl MongoClient {
     pub async fn new() -> Self {
         let client_uri =
@@ -58,6 +69,10 @@ impl MongoClient {
 
     pub async fn get_symbol_data(&self, symbol: String, path: String, market: String) -> Vec<f64> {
         let database = self.client.database("aslan-data");
+        info!("Querying for symbol: {} ", symbol);
+        info!("Querying for path: {} ", path);
+        info!("Querying for market: {} ", market);
+
         let collection_name = format!("{}_{}_DATA", symbol, market);
         let collection = database.collection::<SymbolData>(collection_name.as_str());
         info!("Querying for symbol: {} ", collection_name);
@@ -225,9 +240,9 @@ impl MongoClient {
         return nodes;
     }
 
-    pub async fn get_symbols(&self) -> Vec<String> {
+    pub async fn get_symbols(&self,market: String) -> Vec<String> {
         let database = self.client.database("aslan-meta");
-        let collection_name = format!("symbols_NASDAQ");
+        let collection_name = format!("symbols_{}", market);
         let collection = database.collection::<Symbol>(&collection_name);
 
         let mut cursor = collection.find(None, None).await.unwrap();
@@ -237,6 +252,20 @@ impl MongoClient {
             symbols.push(data.symbol);
         }
         return symbols;
+    }
+
+    pub async fn insert_prediction(&self, id: String, symbol: String, market: String, path: String, prediction: Vec<f64>) {
+        let database = self.client.database("aslan-predictions");
+        let collection_name = format!("predictions_{}", market);
+        let collection = database.collection::<PredictEntry>(collection_name.as_str());
+        let entry = PredictEntry {
+            _id: id,
+            symbol: symbol,
+            market: market,
+            path: path,
+            prediction: prediction,
+        };
+        collection.insert_one(entry, None).await.unwrap();
     }
 }
 

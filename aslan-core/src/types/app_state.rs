@@ -62,7 +62,7 @@ impl Job for TrainJob {
 pub async fn build_model_v2(symbol: String, path: String, market: String){
     // get symbols from database
     let mongo_client = MongoClient::new().await;
-    let symbols = mongo_client.get_symbols().await;
+    let symbols = mongo_client.get_symbols(market.clone()).await;
     let mut tasks = Vec::new();
     let mut full_normalized_data = Vec::new();
     let mut full_data = Vec::new();
@@ -134,7 +134,7 @@ pub async fn build_model(symbol: String, path: String, market: String) {
     let loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Initialisation Stage".to_string());
 
     info!("Training model with wavereduce");
-    wavereduce_training(data, nodes.as_mut(), 100000, 7);
+    wavereduce_training(data, nodes.as_mut(), 100, 7);
 
     info!("Evaluating loss function post WaveReduce");
     let wave_loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Wavereduce Stage".to_string());
@@ -153,6 +153,7 @@ pub async fn build_model(symbol: String, path: String, market: String) {
 }
 
 pub async fn train_model(job: TrainJob, _ctx: JobContext) -> Result<JobResult, JobError> {
+    //TODO propergate errors up stack to control job result
     build_model(job.symbol, job.path, job.market).await;
     Ok(JobResult::Success)
 }

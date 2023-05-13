@@ -4,10 +4,11 @@ use actix_web::{
     post,
     web::{self, Json},
 };
+use apalis::{prelude::{JobContext, Storage,JobResult, Job, JobError}, postgres::PostgresStorage};
 use aslan_bootstrap::BootstrapResult;
 use aslan_data::DataNode;
 use serde::{Deserialize, Serialize};
-use log::{info};
+use log::{info, error};
 
 use crate::db::mongodb::MongoClient;
 
@@ -17,9 +18,23 @@ pub struct DataResponse {
     data: Option<BootstrapResult>,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PredictJob {
+    pub symbol: String,
+    pub path: String,
+    pub market: String,
+    pub seed: Vec<f64>,
+    pub size: usize,
+}
+
+impl Job for PredictJob {
+    const NAME: &'static str = "apalis::PredictJob";
+}
+
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PredictParameters{
+    pub id: String,
     pub symbol: String,
     pub market: String,
     pub path: String,
@@ -27,13 +42,90 @@ pub struct PredictParameters{
     pub size: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PredictDataResponse {
+    message: String,
+}
+
+
+#[post("/addPredictionJob")]
+pub async fn add_predict_job(body: web::Json<PredictParameters>, storage: web::Data<PostgresStorage<PredictJob>>) -> Json<PredictDataResponse> {
+    let new_job = PredictJob {
+        symbol: body.symbol.clone(),
+        path: body.path.clone(),
+        market: body.market.clone(),
+        seed: body.seed.clone(),
+        size: body.size,
+    };
+    let storage = &*storage.into_inner();
+    let mut storage = storage.clone();
+    let res = storage.push(new_job).await;
+
+    info!("Adding prediction to queue: {}", body.symbol);  
+    match res {
+        Ok(()) => {
+            info!("Model request added to queue");
+            let response = PredictDataResponse {
+                message: "Prediction Job Added To Queue".to_string(),
+            };
+            Json(response)
+        },
+        Err(e) => {
+            error!("Error adding job to queue: {}", e);
+            let response = PredictDataResponse {
+                message: format!("Error adding prediction Job to Queue: {}", e),
+            };
+            Json(response)
+        },
+    } 
+
+}
+
+pub async fn predict_job(job: PredictJob, _ctx: JobContext) -> Result<JobResult, JobError> {
+    //TODO propergate errors up stack to control job result
+    //build_model(job.symbol, job.path, job.market).await;
+    let params  = PredictParameters{
+        id: "0".to_string(), //TODO: fix this hack",
+        symbol: job.symbol.clone(),
+        path: job.path.clone(),
+        market: job.market.clone(),
+        seed: job.seed.clone(),
+        size: job.size,
+    };
+
+    let final_results = generate_results(params).await;
+    info!("Final Results: {:?}", final_results);
+    
+    Ok(JobResult::Success)
+}
 
 #[post("/predict")]
 pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> {
+    let params  = PredictParameters{
+        id: data.id.clone(),
+        symbol: data.symbol.clone(),
+        path: data.path.clone(),
+        market: data.market.clone(),
+        seed: data.seed.clone(),
+        size: data.size,
+    };
+    
+    let final_results = generate_results(params).await;
+    info!("Final Results: {:?}", final_results);
+
+    let response = DataResponse {
+        message: "Predicted Data".to_string(),
+        data: Some(BootstrapResult { generated_data: final_results
+            , average_data: vec![] }),
+    };
+    Json(response)
+}
+
+pub async fn generate_results( data: PredictParameters)-> Vec<f64>{
     let mongodb = MongoClient::new().await;
     
 
-    let symbols = mongodb.get_symbols().await;
+    let symbols = mongodb.get_symbols(data.market.clone()).await;
     let mut predictions = Vec::new();
     let mut tasks = Vec::new();
  
@@ -79,19 +171,12 @@ pub async fn generate(data: web::Json<PredictParameters>) -> Json<DataResponse> 
         let entry = (sum/predictions.len() as f64 * 100.0).round() / 100.0;
         final_results.push(entry);
     }
+    return final_results;
 
-    info!("Final Results: {:?}", final_results);
-
-    let response = DataResponse {
-        message: "Predicted Data".to_string(),
-        data: Some(BootstrapResult { generated_data: final_results
-            , average_data: vec![] }),
-    };
-    Json(response)
 }
 
 // gets a model based on a symbol and generates a prediction
-async fn predict(symbol: String, path: String, market: String, size: usize,seed: Vec<f64>, mongodb: &MongoClient) -> Result<BootstrapResult,String> {
+pub async fn predict(symbol: String, path: String, market: String, size: usize,seed: Vec<f64>, mongodb: &MongoClient) -> Result<BootstrapResult,String> {
 
     // check if model exists in models metadata database
     if !mongodb.find_model_entry(symbol.clone(),path.clone()).await{
