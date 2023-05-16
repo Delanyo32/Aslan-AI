@@ -187,7 +187,6 @@ fn wavereduce_training (data: Vec<f64>,nodes: &mut Vec<DataNode>, iterations: us
 
     // number of times to run the refinement
     for iter in 0..iterations{
-        info!("Iteration: {}", iter);
         // randomly select a chunk to use for the refinement
         let mut rng = rand::thread_rng();
         let random_chunk = rng.gen_range(0..chunks.len());
