@@ -84,13 +84,6 @@ impl RabbitMQ {
             }
         };
 
-
-        delivery
-            .ack(BasicAckOptions::default())
-            .await
-            .expect("Failed to ack send_webhook_event message");
-        
-
         // TODO FIX error behavior
         // convert message from bytes to struct
         let model_parameter: ModelParameter = serde_json::from_slice(&delivery.data).unwrap();
@@ -98,6 +91,11 @@ impl RabbitMQ {
         info!("Building Model");
         app_state::build_model(model_parameter.symbol, model_parameter.path, model_parameter.market).await;
         info!("Model Built");
+
+        delivery
+            .ack(BasicAckOptions::default())
+            .await
+            .expect("Failed to ack send_webhook_event message");
 
     });
 
