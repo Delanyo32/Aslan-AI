@@ -113,50 +113,49 @@ pub async fn build_model_v2(symbol: String, path: String, market: String){
     mongo_client.add_model_entry("OMEGA".to_string(), path.clone(),market.clone()).await;
 
 }
-
+// TODO: propergate errors up stack
 pub async fn build_model(symbol: String, path: String, market: String) {
     info!("Building data model for {}", symbol);
     let mongo_client = MongoClient::new().await;
-    let data = mongo_client.get_symbol_data(symbol.clone(), path.clone(), market.clone()).await;
 
-    //truncate data from full data for testing
-    info!("Truncating data for testing. Data Size {}", data.len());
-    let lenght  = data.len() /4;
-    info!("Truncating data for testing. Truncating Size {}", lenght);
-    let test_data = data.as_slice()[data.len()-lenght..].to_vec();
+    let mut normalized_data = Vec::new();
+    let mut data = Vec::new();
+    
+    let mut open_data = mongo_client.get_symbol_data(symbol.clone(), "OPEN".to_string(), market.clone()).await;
+    let mut high_data = mongo_client.get_symbol_data(symbol.clone(), "HIGH".to_string(), market.clone()).await;
+    let mut low_data = mongo_client.get_symbol_data(symbol.clone(), "LOW".to_string(), market.clone()).await;
+    let mut close_data = mongo_client.get_symbol_data(symbol.clone(), "CLOSE".to_string(), market.clone()).await;
+
+    info!("Normalizing data");
+    let mut normalized_open = aslan_data::AslanDataChunks::normalize_data(&open_data);
+    let mut normalized_high = aslan_data::AslanDataChunks::normalize_data(&high_data);
+    let mut normalized_low = aslan_data::AslanDataChunks::normalize_data(&low_data);
+    let mut normalized_close = aslan_data::AslanDataChunks::normalize_data(&close_data);
+
+    info!("Concatenating Normalized data");
+    normalized_data.append(normalized_open.as_mut());
+    normalized_data.append(normalized_high.as_mut());
+    normalized_data.append(normalized_low.as_mut());
+    normalized_data.append(normalized_close.as_mut());
+
+    info!("Concatenating data");
+    data.append(open_data.as_mut());
+    data.append(high_data.as_mut());
+    data.append(low_data.as_mut());
+    data.append(close_data.as_mut());
 
     //initialize the data
     info!("Initializing data");
-    let (_, mut nodes) = initialize_data(&data);
-
-    //evaluate loss function (std of the model)
-    info!("Evaluating loss function");
-    let loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Initialisation Stage".to_string());
+    let (_, mut nodes) = initialize_data_v2(&data);
 
     info!("Training model with wavereduce");
     wavereduce_training(data, nodes.as_mut(), 100, 7);
 
-    info!("Evaluating loss function post WaveReduce");
-    let wave_loss_breakdown = evaluate_loss_function(&test_data, &nodes, 7, "Wavereduce Stage".to_string());
-
-    //save results to db
-    info!("Saving Loss results to db");
-    mongo_client.save_loss_breakdown(symbol.clone(), loss_breakdown,path.clone()).await;
-    mongo_client.save_loss_breakdown(symbol.clone(), wave_loss_breakdown,path.clone()).await;
-
-    mongo_client.export_data(symbol.clone(), nodes,path.clone(),market.clone()).await;
+    mongo_client.export_data(symbol.clone(), nodes,"OMEGA".to_string(),market.clone()).await;
     info!("Building data model complete");
 
-    //adding model to the model list
-    info!("Adding model to model list");
-    mongo_client.add_model_entry(symbol.clone(), path.clone(),market.clone()).await;
 }
 
-pub async fn train_model(job: TrainJob, _ctx: JobContext) -> Result<JobResult, JobError> {
-    //TODO propergate errors up stack to control job result
-    build_model(job.symbol, job.path, job.market).await;
-    Ok(JobResult::Success)
-}
 
 
 fn initialize_data(data: &Vec<f64>) -> (Vec<f64>, Vec<DataNode>) {
@@ -173,33 +172,38 @@ fn initialize_data(data: &Vec<f64>) -> (Vec<f64>, Vec<DataNode>) {
 fn initialize_data_v2(normalized_data: &Vec<f64>) -> (Vec<f64>, Vec<DataNode>) {
     info!("Generating nodes");
     let mut nodes_v2 = aslan_data::DataNode::generate_nodes(&normalized_data, 0.07);
-    info!("Initializing node edges");
-    aslan_data::DataNode::initialize_node_edges(nodes_v2.as_mut());
-    let averaged_data = aslan_data::DataNode::parse_data(&nodes_v2, &normalized_data);
     info!("Setting distance scores");
-    aslan_data::DataNode::set_distance_scores(nodes_v2.as_mut(), &averaged_data);
+    aslan_data::DataNode::set_distance_scores(nodes_v2.as_mut(), normalized_data);
     info!("Setting weights");
     aslan_data::DataNode::set_weights(nodes_v2.as_mut());
     info!("Initialization complete");
-    (averaged_data, nodes_v2)
+    (normalized_data.to_vec(), nodes_v2)
 }
 
 
 fn wavereduce_training (data: Vec<f64>,nodes: &mut Vec<DataNode>, iterations: usize, chunk_size: usize){
+    // create chunks of the data which will be used to refine the model
     let chunks: Vec<&[f64]> = data.chunks(chunk_size).collect();
+
+    // number of times to run the refinement
     for iter in 0..iterations{
         info!("Iteration: {}", iter);
+        // randomly select a chunk to use for the refinement
         let mut rng = rand::thread_rng();
         let random_chunk = rng.gen_range(0..chunks.len());
         let chunk = chunks[random_chunk];
 
+        // randomly select a node to use as the seed for the refinement
         let partition_seed = chunk[0];
 
+        // generate the results of the refinement
         let waveresultsize = 100;
         let wavereduce = aslan_wavereduce::WaveReduce::new(partition_seed, chunk_size,waveresultsize);
         let wavereduce_results = wavereduce.generate_results(nodes);
 
         let mut distribution:Vec<WaveDistriubtion>  = Vec::new();
+
+        // calculate the standard deviation between the generated data and the actual data
         for result in wavereduce_results.results{
             let generated:Vec<f64> = result.result.into_iter().map(|x| x.state ).collect();
             let denomalized = denormalize_data(partition_seed, &generated);
@@ -218,13 +222,14 @@ fn wavereduce_training (data: Vec<f64>,nodes: &mut Vec<DataNode>, iterations: us
             distribution.push(wave_distribution);
         }
 
-        //sort by std
+        //sort from the lowest standard deviation to the highest
         distribution.sort_by(|a, b| a.std.partial_cmp(&b.std).unwrap());
         for dist in distribution.iter(){
             info!("{}: prediction {:?}, data {:?}", dist.std, dist.prediction, dist.data);
         }
         distribution.reverse();
 
+        // update the nodes with the new data
         for (i,dist) in distribution.iter().enumerate(){
             let node_pointer = dist.generated_data[0];
             let found_node = nodes.iter_mut().find(|x| x.average == node_pointer).unwrap();

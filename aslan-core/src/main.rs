@@ -12,7 +12,7 @@ use api::task::{init};
 use api::predict::{generate, add_predict_job, predict_job, PredictJob};
 
 mod types;
-use types::app_state::{TrainJob,train_model, JobList};
+use types::app_state::{TrainJob};
 
 mod db;
 

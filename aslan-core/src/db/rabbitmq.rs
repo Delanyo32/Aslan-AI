@@ -84,6 +84,14 @@ impl RabbitMQ {
             }
         };
 
+
+        delivery
+            .ack(BasicAckOptions::default())
+            .await
+            .expect("Failed to ack send_webhook_event message");
+        
+
+        //TODO FIX error behavior
         // convert message from bytes to struct
         let model_parameter: ModelParameter = serde_json::from_slice(&delivery.data).unwrap();
         info!("Received message for model consumer: {}", model_parameter.symbol);
@@ -91,10 +99,6 @@ impl RabbitMQ {
         app_state::build_model(model_parameter.symbol, model_parameter.path, model_parameter.market).await;
         info!("Model Built");
 
-        delivery
-            .ack(BasicAckOptions::default())
-            .await
-            .expect("Failed to ack send_webhook_event message");
     });
 
 
@@ -125,26 +129,25 @@ impl RabbitMQ {
     // convert message from bytes to struct
     let predict_parameter: predict::PredictParameters = serde_json::from_slice(&delivery.data).unwrap();
     info!("Received message for predict consumer: {}", predict_parameter.symbol);
+
+
+    delivery
+    .ack(BasicAckOptions::default())
+    .await
+    .expect("Failed to ack send_webhook_event message");
+
     let id = predict_parameter.id.clone();
     let symbol = predict_parameter.symbol.clone();
     let market = predict_parameter.market.clone();
     let path = predict_parameter.path.clone();
 
+    //TODO FIX error behavior
     let prediction = predict::generate_results(predict_parameter).await;
 
     info!("Saving Prediction to MongoDB");
     let mongodb = MongoClient::new().await;
     mongodb.insert_prediction(id, symbol, market, path, prediction).await;
     info!("Saving Prediction to MongoDB completed");
-    // tokio::spawn(async move {
-    //     let prediction = predict::generate_results(predict_parameter).await;
-    // }).await.unwrap();
-
-
-    delivery
-        .ack(BasicAckOptions::default())
-        .await
-        .expect("Failed to ack send_webhook_event message");
 });
 
         RabbitMQ{

@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use polars::prelude::*;
 
 #[derive(Debug)]
 pub struct AslanDataChunks{
@@ -135,37 +136,20 @@ impl AslanDataChunks{
         }
     }
 
-    //rename this normalize
-    pub fn parse_linear_data(self)->Self{
-        let result = self.flat_data.iter()
-        .enumerate()
-        .map(|(i,x)|{
-            if i<self.flat_data.len()-1 {
-                let next_x = self.flat_data[i+1];
-                let diff = next_x - x;
-                let diff = (diff * 100.0).round() / 100.0;
-                diff
-            }else{
-                0.0
-            }
-        }).collect::<Vec<f64>>();
-        AslanDataChunks{
-            flat_data: result,
-        }
-    }
-    pub fn normalize_data(data:&Vec<f64>)->Vec<f64>{
-        let result = data.iter()
-        .enumerate()
-        .map(|(i,x)|{
-            if i<data.len()-1 {
-                let next_x = data[i+1];
-                let diff = next_x - x;
-                let diff = (diff * 100.0).round() / 100.0;
-                diff
-            }else{
-                0.0
-            }
-        }).collect::<Vec<f64>>();
+
+    pub fn normalize_data(data: &Vec<f64>) -> Vec<f64> {
+        let series = Series::new("curent",data);
+        let next_series = series.shift(-1);
+    
+        let diff = next_series - series;
+        let normalized_diff =  diff.round(2).unwrap();
+    
+        let result = match normalized_diff.f64(){
+            Ok(values) => values.into_no_null_iter().collect(),
+            Err(_) => Vec::new(),
+        };
+
         result
     }
+
 }

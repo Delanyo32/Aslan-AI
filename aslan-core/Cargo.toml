@@ -27,6 +27,7 @@ anyhow = "1"
 lapin = "2.1.1"
 tokio-executor-trait = "2.0.1"
 tokio-reactor-trait = "1.1.0"
+polars = { version = "0.29.0", features = ["lazy"] }
 
 [dependencies.mongodb]
 version = "2.3.1"
