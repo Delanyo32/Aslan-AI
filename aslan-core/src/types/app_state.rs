@@ -224,9 +224,6 @@ fn wavereduce_training (data: Vec<f64>,nodes: &mut Vec<DataNode>, iterations: us
 
         //sort from the lowest standard deviation to the highest
         distribution.sort_by(|a, b| a.std.partial_cmp(&b.std).unwrap());
-        for dist in distribution.iter(){
-            info!("{}: prediction {:?}, data {:?}", dist.std, dist.prediction, dist.data);
-        }
         distribution.reverse();
 
         // update the nodes with the new data

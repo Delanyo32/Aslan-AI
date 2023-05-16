@@ -207,16 +207,10 @@ pub async fn predict(symbol: String, path: String, market: String, size: usize,s
 
         //print a random result from the wavereduce results
         let flat_results = aslan_wavereduce::WaveReduceSolution::flatten_results(&wavereduce_results.results);
-        info!("---------------------------------");
-        info!("Parameter: {}", parameter);
-        info!("Partition Size: {}", partition_size);
-        info!("Wave Result Size: {}", wavereduce_results.results.len());
-        info!("Result Size: {}", flat_results.len());
         for result in flat_results{
             let (_, right) = result.split_at(result.len() - size);
             result_space.push(right.to_vec());
         }
-        info!("---------------------------------");
     }
 
     let boostrap_iterations = 100;
