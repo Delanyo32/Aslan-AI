@@ -91,7 +91,7 @@ impl RabbitMQ {
             .expect("Failed to ack send_webhook_event message");
         
 
-        //TODO FIX error behavior
+        // TODO FIX error behavior
         // convert message from bytes to struct
         let model_parameter: ModelParameter = serde_json::from_slice(&delivery.data).unwrap();
         info!("Received message for model consumer: {}", model_parameter.symbol);
