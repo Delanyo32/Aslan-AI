@@ -3,3 +3,5 @@ nodes
 target
 
 .env
+Cargo.lock
+.vscode/settings.json

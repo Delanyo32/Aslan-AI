@@ -1,5 +1,3 @@
-use std::char::UNICODE_VERSION;
-
 use actix_web::{
     post,
     web::{self, Json},

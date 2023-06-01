@@ -1,20 +1,15 @@
-use actix_web::web::{route, Json};
-use anyhow::Result;
-use actix_web::{Responder, HttpResponse, post};
-use apalis::prelude::{Monitor, WorkerBuilder, WorkerFactoryFn, JobStreamExt, JobState, Storage};
-use apalis::layers::{TraceLayer};
-use apalis::postgres::PostgresStorage;
+use actix_web::{Responder, HttpResponse};
 use actix_web::{web, App, HttpServer, middleware::Logger};
-use api::job::{list_jobs, get_workers, kill_job, get_job};
-use futures::future;
 mod api;
+use api::model::model;
 use api::task::{init};
-use api::predict::{generate, add_predict_job, predict_job, PredictJob};
+use api::predict::{generate, add_predict_job};
 
 mod types;
-use types::app_state::{TrainJob};
 
 mod db;
+mod helpers;
+mod transformer;
 
 
 #[tokio::main]
@@ -30,22 +25,17 @@ async fn main()-> std::io::Result<()>{
     std::env::set_var("RUST_BACKTRACE", "1");
     env_logger::init();
 
-    // RabbitMQ
-    let rabbitmq = db::rabbitmq::RabbitMQ::new().await;
 
-    let http = HttpServer::new(move || {
+    let _http = HttpServer::new(move || {
         let logger = Logger::default();
         App::new()
         .wrap(sentry_actix::Sentry::new())
         .wrap(logger)
             .service(init)
+            .service(model)
             .service(generate)
             .service(add_predict_job)
             .route("/", web::get().to(health))
-            .route("/listJobs" ,web::get().to(list_jobs))
-            .route("/listWorkers" ,web::get().to(get_workers))
-            .route("/killJob/{job_id}" ,web::get().to(kill_job))
-            .route("/getJob/{job_id}" ,web::get().to(get_job))
     })
     .bind(("0.0.0.0", port))?
     .run()

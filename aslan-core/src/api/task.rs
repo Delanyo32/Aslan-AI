@@ -4,7 +4,7 @@ use actix_web::{
 };
 use apalis::{postgres::PostgresStorage, prelude::Storage};
 use serde::{Deserialize, Serialize};
-use log::{info, warn,error};
+use log::{info,error};
 
 use crate::{types::app_state::{TrainJob,Status}, db::mongodb::MongoClient};
 

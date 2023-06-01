@@ -10,7 +10,7 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 use std::{env, sync::Arc};
 
-use crate::types::app_state::LossBreakdown;
+use crate::{types::app_state::LossBreakdown, transformer::embedding::Embedding};
 
 // implement copy trait for Mongo Client
 impl Clone for MongoClient {
@@ -55,6 +55,13 @@ pub struct Symbol{
     pub class: String,
     pub exchange: String,
     pub shortable: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct AssetData {
+    pub symbol: Option<String>,
+    pub label: Option<String>,
+    pub data: Vec<f64>,
 }
 
 
@@ -266,6 +273,62 @@ impl MongoClient {
             prediction: prediction,
         };
         collection.insert_one(entry, None).await.unwrap();
+    }
+
+    // function to list all collections in mongodb
+    pub async fn list_collections(&self, database_name: String) -> Vec<String> {
+        let database = self.client.database(database_name.as_str());
+        let cursor = database.list_collection_names(None).await.unwrap();
+        return cursor;
+    }
+
+    // given a collection name, return the documents in the collection
+    pub async fn get_collection(&self, collection_name: String, database_name: String) -> Vec<Vec<f64>> {
+        let database = self.client.database(database_name.as_str());
+        let collection = database.collection::<AssetData>(&collection_name);
+        let mut cursor = collection.find(None, None).await.unwrap();
+        let mut documents = Vec::new();
+        while let Some(document) = cursor.try_next().await.unwrap() {
+            documents.push(document.data);
+        }
+        return documents;
+    }
+
+    // given a vec of floats and a collection name, insert the data into the collection
+    pub async fn insert_tokens(&self, collection_name: String, data: Vec<f64>) {
+        let database = self.client.database("aslan-tokens");
+        let collection = database.collection::<Document>(&collection_name);
+        let entry = doc!  {
+            "_id": collection_name.clone(),
+            "data": data,
+        };
+        collection.insert_one(entry, None).await.unwrap();
+    }
+
+    // given database and collection name check if a collection exists
+    pub async fn check_collection(&self, collection_name: String, database: String) -> bool {
+        let database = self.client.database(database.as_str());
+        let filter = doc! {"name": collection_name};
+        let cursor = database.list_collection_names(filter).await.unwrap();
+        if cursor.len() == 0 {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    pub async fn insert_embeddings(&self, embedings: Vec<Embedding>){
+        let database = self.client.database("aslan-embeddings");
+        let collection = database.collection::<Document>(&"embeddings");
+        let mut entries = Vec::new();
+        for embedding in embedings {
+            let entry = doc!  {
+                "_id": embedding.token.to_string(),
+                "input_layer": embedding.input_layer,
+            };
+            entries.push(entry);
+        }
+        collection.insert_many(entries, None).await.unwrap();
     }
 }
 
