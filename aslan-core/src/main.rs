@@ -1,7 +1,7 @@
 use actix_web::{Responder, HttpResponse};
 use actix_web::{web, App, HttpServer, middleware::Logger};
 mod api;
-use api::model::model;
+use api::model::{model,generate_tokens};
 use api::task::{init};
 use api::predict::{generate, add_predict_job};
 
@@ -31,8 +31,9 @@ async fn main()-> std::io::Result<()>{
         App::new()
         .wrap(sentry_actix::Sentry::new())
         .wrap(logger)
-            .service(init)
             .service(model)
+            .service(generate_tokens)
+            .service(init)
             .service(generate)
             .service(add_predict_job)
             .route("/", web::get().to(health))

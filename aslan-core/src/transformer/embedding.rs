@@ -61,7 +61,7 @@ pub async fn generate_unique_tokens() {
     info!("Unique tokens size: {:?}", unique_tokens.len());
     
     // initialize embeddings
-    let embedings = initialize_embedings(unique_tokens, 5).await;
+    let embedings = initialize_embedings(unique_tokens, 100).await;
 
     // save embeddings to database
     mongo_client.insert_embeddings(embedings).await;
@@ -90,22 +90,23 @@ pub async fn initialize_embedings(tokens: Vec<f64>, parameters_size: usize)->Vec
 
 pub async fn train_model(){
     // initialize embeddings and the data
-    let (mut embeddings, input_set, output_set) = initialize_data();
-
+    let (mut embeddings, input_set, output_set) = initialize_data().await;
+    info!("Initialized embeddings and data");
     // make 15 iterations
-    for iteration in 0..100 {
-
+    for iteration in 0..2 {
+        info!("Starting Itteration: {}", iteration);
         let mut cross_entropy_set = Vec::new();
         let mut predictions = Vec::new();
         let mut linear_activations_set = Vec::new();
         let mut expected_prediction_probability_set = Vec::new();
     
+        info!("Making predictions");
         for (index,input) in input_set.iter().enumerate() {
             // make prediction
             let (softmax,linear_activations) = make_prediction(input.clone(), embeddings.clone()).await;
     
             linear_activations_set.push(linear_activations);
-    
+            
             // get the series with the expected output and calculate cross entropy
             let expected_prediction = output_set[index];
             let expected_prediction= get_expected_prediction_probability(softmax.clone(), expected_prediction);
@@ -164,6 +165,7 @@ pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_
     let mut new_embeddings = Vec::new();
     let embeddings_clone = embeddings.clone();
 
+    // num embeddings(~6000) *(num predictions(~560) * num weights(~100))
     for (e_index,embedding) in embeddings.iter().enumerate(){
         let weights = embedding.input_layer.clone();
         let w_set = &embeddings_clone[e_index].output_layer;
@@ -171,13 +173,15 @@ pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_
         let mut new_weights = Vec::new();
         let learning_rate = 0.1;
 
+        // num predictions(~560) * num weights(~100)
         for (index,weight) in weights.iter().enumerate(){
 
             let mut total_slope = 0.0;
 
+            //num predictions(~560)
             for (i, prediction) in predictions_set.iter().enumerate(){
                 let (_p_name,p_value) = get_value(prediction.clone());
-                let w = w_set[i];
+                let w = w_set[index];
                 let slope = -1.0/p_value *(p_value*(1.0-p_value))*w;
                 total_slope += slope;
             }
@@ -247,43 +251,37 @@ pub fn calculate_new_layer_2_embeddings(embeddings : Vec<Embedding>, predictions
 }
 
 // function to get the input and output data
-pub fn initialize_data() -> (Vec<Embedding>, Vec<Vec<f64>>, Vec<f64>){
+pub async fn initialize_data() -> (Vec<Embedding>, Vec<Vec<f64>>, Vec<f64>){
     // using sample data for now
     // only 3 possible tokens
     // get data from database
-    let d1 = Embedding {
-        token: 1.0,
-        input_layer: vec![0.1, 0.2, 0.3, 0.4, 0.5],
-        output_layer: vec![0.1, 0.2, 0.3, 0.4, 0.5],
-    };
-    let d2 = Embedding {
-        token: -0.2,
-        input_layer: vec![0.2, 0.3, 0.4, 0.5, 0.6],
-        output_layer: vec![0.2, 0.3, 0.4, 0.5, 0.6],
-    };
-    let d3 = Embedding {
-        token: 5.0,
-        input_layer: vec![0.3, 0.4, 0.5, 0.6, 0.7],
-        output_layer: vec![0.3, 0.4, 0.5, 0.6, 0.7],
-    };
+    let mongo_client = MongoClient::new().await;
+    let db_embeddings = mongo_client.get_embeddings().await;
 
-    
-
-    let mut embeddings = Vec::new();
-    embeddings.push(d1);
-    embeddings.push(d2);
-    embeddings.push(d3);
-
+    let collections = mongo_client.list_collections("aslan-tokens".to_string()).await;
     let mut input_set = Vec::new();
-    let input_values = vec![1.0, -0.2];
-
     let mut output_set = Vec::new();
-    output_set.push(5.0);
-    output_set.push(-0.2);
 
-    input_set.push(input_values.clone());
+    for collection in collections {
+        let entries = mongo_client.get_collection(collection.clone(), "aslan-tokens".to_string()).await;
+    
+        for entry in entries {
+            for e in entry.clone(){
+                input_set.push(vec![e]);
+            }
+    
+            // get the output by shifting the input by 1
+            let mut output = entry.clone();
+            output.remove(0);
+            output_set.append(&mut output);
+            break;
+        }
+        break;
+    }
 
-    return (embeddings, input_set, output_set);
+    input_set.remove(input_set.len()-1);
+
+    return (db_embeddings, input_set, output_set);
 
 }
 
@@ -358,7 +356,7 @@ pub fn get_inputs_and_output_vectors(input_values: Vec<f64>, embeddings : Vec<Em
     for input in input_values {
         let input_embeddings = embeddings.clone();
         let input_vec =  input_embeddings.iter().filter(|&value|value.token == input).cloned().collect::<Vec<Embedding>>();
-        let input_vec = input_vec.iter().flat_map(|e|e.input_layer.clone()).collect::<Vec<f64>>();
+        let input_vec = input_vec[0].input_layer.clone();
         let series = Series::new(input.to_string().as_str(), input_vec);
         input_layer.push(series.clone());
     }

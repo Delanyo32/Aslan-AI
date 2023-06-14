@@ -324,11 +324,24 @@ impl MongoClient {
         for embedding in embedings {
             let entry = doc!  {
                 "_id": embedding.token.to_string(),
+                "token": embedding.token,
                 "input_layer": embedding.input_layer,
+                "output_layer": embedding.output_layer,
             };
             entries.push(entry);
         }
         collection.insert_many(entries, None).await.unwrap();
+    }
+
+    pub async fn get_embeddings(&self) -> Vec<Embedding> {
+        let database = self.client.database("aslan-embeddings");
+        let collection = database.collection::<Embedding>(&"embeddings");
+        let mut cursor = collection.find(None, None).await.unwrap();
+        let mut embeddings = Vec::new();
+        while let Some(embedding) = cursor.try_next().await.unwrap() {
+            embeddings.push(embedding);
+        }
+        return embeddings;
     }
 }
 
