@@ -1,6 +1,7 @@
 nodes
 
 target
+training
 
 .env
 Cargo.lock

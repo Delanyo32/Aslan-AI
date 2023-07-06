@@ -1,10 +1,12 @@
 use log::info;
 use rand::Rng;
+use sentry::Data;
 use serde::{Serialize, Deserialize};
 
 use polars::prelude::*;
+
 use crate::{db::mongodb::MongoClient, api::predict};
-use polars::prelude::*;
+use std::time::Instant;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Embedding {
@@ -89,12 +91,27 @@ pub async fn initialize_embedings(tokens: Vec<f64>, parameters_size: usize)->Vec
 } 
 
 pub async fn train_model(){
+    let start = Instant::now();
     // initialize embeddings and the data
-    let (mut embeddings, input_set, output_set) = initialize_data().await;
+    let (embeddings, input_set, output_set) = initialize_data().await;
+
+    let elapsed = start.elapsed();
+    info!("Time elapsed in initialize_data() is: {:?}", elapsed);
     info!("Initialized embeddings and data");
     // make 15 iterations
-    for iteration in 0..2 {
+    for iteration in 0..1 {
+        let start = Instant::now();
         info!("Starting Itteration: {}", iteration);
+
+        // version prediction version 2 (with dataframes)
+        for (_,input) in input_set.iter().enumerate() {
+            let _ = generate_predictions_v2(vec![*input], output_set.clone(), embeddings.clone());
+        }
+        let elapsed = start.elapsed();
+        info!("Time elapsed in generate_predictions_v2() is: {:?}", elapsed);
+        break;
+
+        // v1
         let mut cross_entropy_set = Vec::new();
         let mut predictions = Vec::new();
         let mut linear_activations_set = Vec::new();
@@ -103,7 +120,7 @@ pub async fn train_model(){
         info!("Making predictions");
         for (index,input) in input_set.iter().enumerate() {
             // make prediction
-            let (softmax,linear_activations) = make_prediction(input.clone(), embeddings.clone()).await;
+            let (softmax,linear_activations) = make_prediction(vec![*input], embeddings.clone()).await;
     
             linear_activations_set.push(linear_activations);
             
@@ -115,7 +132,7 @@ pub async fn train_model(){
             let (epp_name,epp_value) = get_value(expected_prediction);
     
             // calculate cross entropy
-            let cross_entropy = calculate_cross_entropy(epp_value);
+            let cross_entropy = calculate_cross_entropy(epp_value[0]);
             // add cross entropy to cross entropy set
             let cross_entropy_series = Series::new(epp_name.as_str(), vec![cross_entropy]);
             cross_entropy_set.push(cross_entropy_series);
@@ -147,23 +164,90 @@ pub async fn train_model(){
         }
         embeddings = new_embeddings;
     }
+    info!("Training complete");
+}
 
+pub fn generate_predictions_v2 (input_values: Vec<f64>,output_set: Vec<f64>, embeddings: Vec<Embedding>){
+    info!("Making predictions");
+
+    let (input_layer, output_layer) = get_inputs_and_output_vectors(input_values.clone(), embeddings);
+    let mut prediction_df = DataFrame::new(input_layer.clone()).unwrap();
+
+    // constructing the expression
+    let input_labels = input_values.iter().map(|x| x.to_string()).collect::<Vec<String>>();
+    let mut init = lit(0.0);
+    for label in input_labels{
+        init = init + col(label.as_str());
+    }
+
+    // running the expression
+    let total_sum = prediction_df.clone().lazy().with_columns([
+        init.alias("sum"),
+    ]).collect().unwrap();
+
+    info!("total_sum: {:?}", total_sum);
+
+    // do a linear sum of the input layers 
+    // run through the linear activations
+    // revisit with map or apply later
+    let linear_activations_df = total_sum.clone().lazy().with_columns([
+        col("sum").alias("linear_activations"),
+    ]).collect().unwrap();
+
+    info!("linear_activations_df: {:?}", linear_activations_df);
+    // let linear_activations = linear_activation_function(total_sum);
+
+    // let linear_activation_step = sum_step.with_column(linear_activations.clone()).unwrap();
+    // let mut out_step =Vec::new();
+
+    // for series in output_layer {
+    //     let mut new_value = linear_activations.clone() * series.clone();
+    //     new_value.rename(series.name());
+    //     out_step.push(new_value);
+    // }
+    // let out_df = DataFrame::new(out_step).unwrap();
+
+    // // get sum of each column
+    // let sum_out = out_df.sum();
+
+    // // get the vec series and run soft max
+    // let set =  sum_out.get_columns().to_vec();
+
+    // let softmax = softmax(set);
+
+    // // convert softmax to dataframe
+    // let softmax_df = DataFrame::new(softmax).unwrap();
+
+    // let header = softmax_df.slice(0, 1);
+    // let row = softmax_df.slice(1, 2);
+
+    // info!("Prediction: {:?}", row);
+    // info!("headers: {:?}", header);
 }
 
 //given a series, returns the name and value as a tuple
-pub fn get_value(series: Series) -> (String, f64) {
+pub fn get_value(series: Series) -> (String, Vec<f64>) {
     let name = series.name().parse::<f64>().unwrap_or(0.0);
     let value = match series.f64(){
         Ok(values) => values.into_no_null_iter().collect(),
         Err(_) => Vec::new(),
     };
-    let value = value[0];
     (name.to_string(), value)
 }
 
 pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_set: Vec<Series>)->Vec<Embedding>{
     let mut new_embeddings = Vec::new();
     let embeddings_clone = embeddings.clone();
+
+    let mut predictions_set_vec = Vec::new();
+    for prediction in predictions_set{
+        let (_p_name,p_value) = get_value(prediction);
+        predictions_set_vec.push(p_value[0]);
+    }
+
+    let p_series = Series::new("predictions", predictions_set_vec.clone());
+    let p_lenght = predictions_set_vec.len();
+    let x = Series::new("neg_ones", vec![-1.0; p_lenght]);
 
     // num embeddings(~6000) *(num predictions(~560) * num weights(~100))
     for (e_index,embedding) in embeddings.iter().enumerate(){
@@ -176,19 +260,28 @@ pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_
         // num predictions(~560) * num weights(~100)
         for (index,weight) in weights.iter().enumerate(){
 
-            let mut total_slope = 0.0;
+            //version 2 
+            // -1.0/p_value * (p_value*(1.0-p_value))*w;
+            let w = w_set[index];
+            
+            let step_one = x.f64().unwrap() / p_series.f64().unwrap(); // -1.0/p_value
+            info!("step_one: {:?}", step_one);
+            let step_two = x.f64().unwrap() - p_series.f64().unwrap(); // (1.0-p_value)
+            info!("step_two: {:?}", step_two);
+            let step_three = p_series.f64().unwrap() * &step_two; // p_value*(1.0-p_value)
+            info!("step_three: {:?}", step_three);
+            let step_four = step_three * w; // p_value*(1.0-p_value)*w
+            info!("step_four: {:?}", step_four);
+            let step_five = step_one * step_four; // -1.0/p_value * (p_value*(1.0-p_value))*w;
+            info!("step_five: {:?}", step_five);
+            let total_slope = step_five.sum().unwrap();
 
-            //num predictions(~560)
-            for (i, prediction) in predictions_set.iter().enumerate(){
-                let (_p_name,p_value) = get_value(prediction.clone());
-                let w = w_set[index];
-                let slope = -1.0/p_value *(p_value*(1.0-p_value))*w;
-                total_slope += slope;
-            }
             // calculate the new weight
             let step_size = total_slope * learning_rate;
             let new_weight = weight - step_size;
             new_weights.push(new_weight);
+
+            break;
         }
 
         let new_embedding = Embedding{
@@ -197,6 +290,7 @@ pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_
             output_layer: embedding.output_layer.clone(),
         };
         new_embeddings.push(new_embedding);
+        break;
     }
     new_embeddings
 }
@@ -204,6 +298,36 @@ pub fn calculate_new_layer_1_embeddings(embeddings : Vec<Embedding>,predictions_
 //each embedding (e) maps to a linear activation (y) e->y
 pub fn calculate_new_layer_2_embeddings(embeddings : Vec<Embedding>, predictions_set: Vec<Series>, linear_activations_set: Vec<Series>, expected_prediction_set: Vec<Series>) -> Vec<Embedding>{
     let mut new_embeddings = Vec::new();
+
+    let mut predictions_set_vec = Vec::new();
+    let mut expected_e_value = Vec::new();
+    let mut expected_p_values = Vec::new();
+
+    for (index,prediction) in predictions_set.iter().enumerate(){
+
+        let (p_name,p_value) = get_value(prediction.clone());
+        predictions_set_vec.push(p_value[0]);
+
+        let expected_prediction = &expected_prediction_set[index];
+        let (ep_name, ep_value) = get_value(expected_prediction.clone());
+
+        if p_name == ep_name{
+            expected_e_value.push(p_value[0]);
+            expected_p_values.push(ep_value[0]);
+        }else{
+            predictions_set_vec.push(p_value[0]) 
+        }
+    }
+
+    // something is wrong with the p series
+    let p_series = Series::new("predictions", predictions_set_vec.clone());
+    let p_lenght = predictions_set_vec.len();
+    let x = Series::new("neg_ones", vec![-1.0; p_lenght]);
+
+    let e_length = expected_e_value.len();
+    let a = Series::new("neg_ones", vec![-1.0; e_length]);
+    let e_p_series = Series::new("expected_predictions", expected_p_values.clone());
+    let e_value_series = Series::new("expected_e_value", expected_e_value.clone());
 
     for embedding in embeddings {
 
@@ -213,31 +337,41 @@ pub fn calculate_new_layer_2_embeddings(embeddings : Vec<Embedding>, predictions
         for (_,weight) in weights.iter().enumerate(){
             let (_,y) = get_value(linear_activations_set[0].clone());
 
-            let mut total_slope = 0.0;
             let learning_rate = 0.1;
-            for (i, prediction) in predictions_set.iter().enumerate(){
-                let (p_name,p_value) = get_value(prediction.clone());
 
-                let expected_prediction = &expected_prediction_set[i];
-                let (ep_name, ep_value) = get_value(expected_prediction.clone());
+            //version 2 
+            // -1.0/p_value * (p_value*(1.0-p_value)) * y;
+            // -1.0/e_p_series * (-ep_value * e_p_series) * y;
 
-                // check if expected prediction is equal to the actual prediction
-                let mut slope = 0.0;
-                
+            let step_one = x.f64().unwrap() / p_series.f64().unwrap(); // -1.0/p_value
+            info!("step_one: {:?}", step_one);
+            let step_two = x.f64().unwrap() - p_series.f64().unwrap(); // (1.0-p_value)
+            info!("step_two: {:?}", step_two);
+            let step_three = p_series.f64().unwrap() * &step_two; // p_value*(1.0-p_value)
+            info!("step_three: {:?}", step_three);
+            let step_four = step_three * y[0]; // p_value*(1.0-p_value)*y
+            info!("step_four: {:?}", step_four);
+            let step_five = step_one * step_four; // -1.0/p_value * (p_value*(1.0-p_value))*y;
+            info!("step_five: {:?}", step_five);
+            let total_slope_1 = step_five.sum().unwrap();
 
-                if p_name == ep_name{
-                    // calculate the new weight
-                    slope = -1.0/p_value *(p_value * (1.0-p_value)) * y;
-                }else{
-                    slope = -1.0/p_value *(-ep_value *p_value) * y;
-                }
-                total_slope += slope;
+            let mut total_slope_2 = 0.0;
+            if e_length > 0{
+                let step_one = a.f64().unwrap() / e_p_series.f64().unwrap(); // -1.0/e_p_series
+                let step_two = a.f64().unwrap() * e_value_series.f64().unwrap(); //- 1.0 * ep_value = -e_value_series
+                let step_three = &step_two * e_p_series.f64().unwrap(); // (-e_value_series * e_p_series)
+                let step_four = step_one * step_three; // -1.0/e_p_series * (-e_value_series * e_p_series)
+                let step_five = step_four * y[0]; // -1.0/e_p_series * (-e_value_series * e_p_series) * y;
+                total_slope_2 = step_five.sum().unwrap();
             }
+            
+            let total_slope = total_slope_1 + total_slope_2;
 
             // calculate the new weight
             let step_size = total_slope * learning_rate;
             let new_weight = weight - step_size;
             new_weights.push(new_weight);
+            break;
         }
         // update the weights
         let new_embedding = Embedding{
@@ -246,43 +380,27 @@ pub fn calculate_new_layer_2_embeddings(embeddings : Vec<Embedding>, predictions
             output_layer: new_weights,
         };
         new_embeddings.push(new_embedding);
+        break;
     }
     new_embeddings
 }
 
 // function to get the input and output data
-pub async fn initialize_data() -> (Vec<Embedding>, Vec<Vec<f64>>, Vec<f64>){
-    // using sample data for now
-    // only 3 possible tokens
-    // get data from database
+pub async fn initialize_data() -> (Vec<Embedding>, Vec<f64>, Vec<f64>){
     let mongo_client = MongoClient::new().await;
     let db_embeddings = mongo_client.get_embeddings().await;
 
-    let collections = mongo_client.list_collections("aslan-tokens".to_string()).await;
     let mut input_set = Vec::new();
     let mut output_set = Vec::new();
 
-    for collection in collections {
-        let entries = mongo_client.get_collection(collection.clone(), "aslan-tokens".to_string()).await;
-    
-        for entry in entries {
-            for e in entry.clone(){
-                input_set.push(vec![e]);
-            }
-    
-            // get the output by shifting the input by 1
-            let mut output = entry.clone();
-            output.remove(0);
-            output_set.append(&mut output);
-            break;
-        }
+    let data = mongo_client.get_test_data("test-dataset".to_owned(), "test-data".to_owned()).await;
+    for test_data in data {
+        input_set.push(test_data.input_data);
+        output_set.push(test_data.output_data);
         break;
     }
 
-    input_set.remove(input_set.len()-1);
-
-    return (db_embeddings, input_set, output_set);
-
+    return (db_embeddings, input_set.to_owned(), output_set.to_owned());
 }
 
 // function to calculate the total cross entropy
@@ -343,10 +461,20 @@ pub async fn make_prediction(input_values: Vec<f64>, embeddings : Vec<Embedding>
 }
 
 
+pub fn linear_activation_function_v2(sum: Series) -> Result<Series, PolarsError>{
+    // Skipped due to no need to implement REVISIT LATER
+    // f(x) = x
+    let (_name, values)  = get_value(sum.clone());
+    let la = Series::new("linear_activations", values);
+    Ok(la)
+}
+
 pub fn linear_activation_function(sum: Series) -> Series{
     // Skipped due to no need to implement REVISIT LATER
     // f(x) = x
-    sum
+    let (_name, values)  = get_value(sum.clone());
+    let la = Series::new("linear_activations", values);
+    la
 }
 
 pub fn get_inputs_and_output_vectors(input_values: Vec<f64>, embeddings : Vec<Embedding>)-> (Vec<Series>, Vec<Series>){

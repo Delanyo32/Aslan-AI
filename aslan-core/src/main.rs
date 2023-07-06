@@ -1,7 +1,7 @@
 use actix_web::{Responder, HttpResponse};
 use actix_web::{web, App, HttpServer, middleware::Logger};
 mod api;
-use api::model::{model,generate_tokens};
+use api::model::{model,generate_tokens,generate_test_data,burn_generate};
 use api::task::{init};
 use api::predict::{generate, add_predict_job};
 
@@ -10,6 +10,7 @@ mod types;
 mod db;
 mod helpers;
 mod transformer;
+mod core;
 
 
 #[tokio::main]
@@ -23,7 +24,9 @@ async fn main()-> std::io::Result<()>{
     let port = std::env::var("PORT").unwrap_or("8080".to_string()).parse::<u16>().unwrap();
     std::env::set_var("RUST_LOG", "debug,sqlx::query=error");
     std::env::set_var("RUST_BACKTRACE", "1");
-    env_logger::init();
+
+    // with this line the training fails find alternative to this
+    //env_logger::init();
 
 
     let _http = HttpServer::new(move || {
@@ -33,6 +36,8 @@ async fn main()-> std::io::Result<()>{
         .wrap(logger)
             .service(model)
             .service(generate_tokens)
+            .service(generate_test_data)
+            .service(burn_generate)
             .service(init)
             .service(generate)
             .service(add_predict_job)

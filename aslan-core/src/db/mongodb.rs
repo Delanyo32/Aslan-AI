@@ -10,7 +10,7 @@ use mongodb::{
 use serde::{Deserialize, Serialize};
 use std::{env, sync::Arc};
 
-use crate::{types::app_state::LossBreakdown, transformer::embedding::Embedding};
+use crate::{types::app_state::LossBreakdown, transformer::embedding::Embedding, helpers::dataparser::TestData};
 
 // implement copy trait for Mongo Client
 impl Clone for MongoClient {
@@ -342,6 +342,32 @@ impl MongoClient {
             embeddings.push(embedding);
         }
         return embeddings;
+    }
+
+
+    pub async fn insert_test_data(&self, data: Vec<TestData>, database: String, collection: String){
+        let database = self.client.database(&database);
+        let collection = database.collection::<Document>(&collection);
+        let mut entries = Vec::new();
+        for test_data in data {
+            let entry = doc!  {
+                "input_data": test_data.input_data,
+                "output_data": test_data.output_data,
+            };
+            entries.push(entry);
+        }
+        collection.insert_many(entries, None).await.unwrap();
+    }
+
+    pub async fn get_test_data(&self,database: String, collection: String) -> Vec<TestData> {
+        let database = self.client.database(&database);
+        let collection = database.collection::<TestData>(&collection);
+        let mut cursor = collection.find(None, None).await.unwrap();
+        let mut test_data = Vec::new();
+        while let Some(data) = cursor.try_next().await.unwrap() {
+            test_data.push(data);
+        }
+        return test_data;
     }
 }
 
