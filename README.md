@@ -168,7 +168,7 @@ docker run -d --cgroupns host --pid host --name dd-agent \
   -v /sys/fs/cgroup/:/host/sys/fs/cgroup:ro \
   -e DD_API_KEY=<DATADOG_API_KEY> gcr.io/datadoghq/agent:7
 
-helm install aslan-logging -f values.yaml --set datadog.apiKey=f220fb795c794aac53c8d9c885c42526 datadog/datadog --set targetSystem=linux
+helm install aslan-logging -f values.yaml --set datadog.apiKey=<DATADOG_API_KEY> datadog/datadog --set targetSystem=linux
 
 kubectl create deployment --image redis redis 
 kubectl expose deployment my-nginx --port=80 --type=LoadBalancer
