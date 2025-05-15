@@ -81,6 +81,8 @@ Aslan AI is a pipeline architecture project aimed at capturing, transforming, an
 - **Burn** — A machine learning library written in Rust for efficient and scalable ML workflows.  
 - **Polars** — A fast DataFrame library in Rust, serving as a high-performance alternative to NumPy and Pandas for data manipulation.  
 - **Actix-web** — A powerful, pragmatic, and extremely fast web framework for Rust used to build HTTP services and APIs.
+- **Redis** - For data storage and caching
+- **Datadog** - For logging and analalitics
 
 ---
 
